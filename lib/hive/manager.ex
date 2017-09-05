@@ -7,21 +7,18 @@ defmodule Hive.Manager do
   end
 
   def init([module, args]) do
-    Logger.info "Starting Hive Manager! [#{module}](#{args})"
+    Logger.info "Hive.Manager Starting [#{module}](#{args}) on #{node()}!"
+    Process.flag(:trap_exit, true)
     start([module, args])
     {:ok, [module, args]}
   end
 
-  def start([module, []]) do
-    Logger.info "Starting Hive Worker! [#{module}](NOARGS)"
-    {status, pid} = module.start_link()
-    Process.monitor(pid)
-  end
-
   def start([module, args]) do
-    Logger.info "Starting Hive Worker! [#{module}](#{args})"
-    {status, pid} = module.start_link(args)
-    Process.monitor(pid)
+    Logger.info "Hive.Worker Starting [#{module}](#{args}) on #{node()}!"
+    case apply(module, :start_link, args) do
+      {status, pid} ->
+        Process.monitor(pid)
+    end
   end
 
   def name(module) do
@@ -33,20 +30,25 @@ defmodule Hive.Manager do
 
   def handle_info({:DOWN, _, :process, pid, :normal}, state) do
     # Managed process exited normally. Shut manager down as well.
-    IO.puts "Managed process exited normally. Shut manager down as well"
+    IO.puts "Hive.Worker exited normally. Shut manager down as well"
     {:stop, :normal, state}
   end
 
   def handle_info({:DOWN, _, :process, pid, :noconnection}, state) do
-    IO.puts "Managed process is nolonger reachable. Restarting on this node."
+    Logger.info "Hive.Worker is nolonger reachable. Restarting on this node."
+    IO.inspect state
     start(state)
     {:noreply, nil}
   end
 
-  def handle_info({:DOWN, _, :process, pid, reason}, state) do
-    IO.puts "Managed process exited with an error(#{reason}). Try restarting."
-    start(state)
-    {:noreply, nil}
-  end
+  def handle_info({:EXIT, _, :killed}, state = [module, args]) do
+    Logger.info "Hive.Worker killed [#{module}](#{args}) on #{node()}!"
+    {:stop, :normal, state}
+ end
 
+ def handle_info({:EXIT, _, :killed}, state) do
+    IO.inspect state
+    Logger.info "Hive.Worker killed (no state)[]() on #{node()}!"
+    {:stop, :normal, state}
+  end
 end
